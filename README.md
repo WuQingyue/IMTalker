@@ -93,6 +93,22 @@ python renderer/inference.py \
     --renderer_path "./checkpoints/renderer.ckpt" \
     --crop
 ```
+
+## 💡 Best Practices
+
+To obtain the highest quality generation results, we recommend following these guidelines:
+
+1.  **Input Image Composition**: 
+    Please ensure the input image features the person's head as the primary subject. Since our model is explicitly trained on facial data, it does not support full-body video generation. 
+    * The inference pipeline automatically **crops the input image** to focus on the face by default.
+    * **Note on Resolution**: The model generates video at a fixed resolution of **512×512**. Using extremely high-resolution inputs will result in downscaling, so prioritize facial clarity over raw image dimensions.
+
+2.  **Audio Selection**: 
+    Our model was trained primarily on **English datasets**. Consequently, we recommend using **English audio** inputs to achieve the best lip-synchronization performance and naturalness.
+
+3.  **Background Quality**: 
+    We strongly recommend using source images with **solid colored** or **blurred (bokeh)** backgrounds. Complex or highly detailed backgrounds may lead to visual artifacts or jitter in the generated video.
+    
 ## 📜 Citation
 If you find our work useful for your research, please consider citing:
 
