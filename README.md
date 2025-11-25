@@ -4,8 +4,8 @@
 
   [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/000000)
   [![Hugging Face Model](https://img.shields.io/badge/Model-HuggingFace-yellow?logo=huggingface)](https://huggingface.co/cbsjtu01/IMTalker)
-  [![Hugging Face Space](https://img.shields.io/badge/Space-HuggingFace-blueviolet?logo=huggingface)](https://huggingface.co/spaces/chenxie95/MeanAudio)
-  [![Project](https://img.shields.io/badge/Website-Visit-orange?logo=googlechrome&logoColor=white)](https://cbsjtu01.github.io/IMTalk/)
+  [![Hugging Face Space](https://img.shields.io/badge/Space-HuggingFace-blueviolet?logo=huggingface)](https://huggingface.co/spaces/chenxie95/IMTalker)
+  [![Project](https://img.shields.io/badge/Website-Visit-orange?logo=googlechrome&logoColor=white)](https://cbsjtu01.github.io/IMTalker/)
 
 
 </p>
@@ -37,6 +37,13 @@ git clone https://github.com/cbsjtu01/IMTalker.git
 cd IMTalker
 pip install -r requirement.txt
 ```
+## ⚡ Quick Start
+
+You can simply run the Gradio demo to get started. The script will **automatically download** the required pretrained models to the `./checkpoints` directory if they are missing.
+
+```bash
+python app.py
+```
 
 ## 📦 Model Zoo
 
@@ -44,9 +51,9 @@ Please download the pretrained models and place them in the `./checkpoints` dire
 
 | Component | Checkpoint | Description | Download |
 | :--- | :--- | :--- | :---: |
-| **Audio Encoder** | `wav2vec2-base-960h` | Facebook Wav2Vec2 Base model | [🤗 Link](https://huggingface.co/cbsjtu01/IMTalker/tree/main/wav2vec2-base-960h) |
+| **Audio Encoder** | `wav2vec2-base-960h` | Wav2Vec2 Base model | [🤗 Link](https://huggingface.co/cbsjtu01/IMTalker/tree/main/wav2vec2-base-960h) |
 | **Generator** | `generator.ckpt` | Flow Matching Generator | [🤗 Link](https://huggingface.co/cbsjtu01/IMTalker/blob/main/generator.ckpt) |
-| **Renderer** | `renderer.ckpt` | IMF-based Renderer | [🤗 Link](https://huggingface.co/cbsjtu01/IMTalker/blob/main/renderer.ckpt) |
+| **Renderer** | `renderer.ckpt` | IMT Renderer | [🤗 Link](https://huggingface.co/cbsjtu01/IMTalker/blob/main/renderer.ckpt) |
 ### 📂 Directory Structure
 Ensure your file structure looks like this after downloading:
 
@@ -56,7 +63,7 @@ Ensure your file structure looks like this after downloading:
 ├── generator.ckpt                    # The main generator
 └── wav2vec2-base-960h/               # Audio encoder folder
     ├── config.json
-    ├── model.safetensors
+    ├── pytorch_model.bin
     └── ...
 ```
 
@@ -76,7 +83,7 @@ python generator/generate.py \
     --crop
 ```
 ### 2. Video-driven Inference
-Generate a talking face from a source image and an audio file.
+Generate a talking face from a source image and an driving video file.
 
 ```bash
 python renderer/inference.py \
