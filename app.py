@@ -187,7 +187,7 @@ class DataProcessor:
         speech_array, sampling_rate = librosa.load(path, sr=self.sampling_rate)
         return self.wav2vec_preprocessor(speech_array, sampling_rate=sampling_rate, return_tensors='pt').input_values[0]
 
-    def crop_video_stable(self, from_mp4_file_path, to_mp4_file_path, expanded_ratio=0.6, skip_per_frame=1):
+    def crop_video_stable(self, from_mp4_file_path, to_mp4_file_path, expanded_ratio=0.6, skip_per_frame=15):
         if os.path.exists(to_mp4_file_path): os.remove(to_mp4_file_path)
         video = cv2.VideoCapture(from_mp4_file_path)
         index = 0

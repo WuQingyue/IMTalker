@@ -43,17 +43,13 @@ class DataProcessor:
     
         # Resize for faster detection
         h, w = img.shape[:2]
-        mult = 360. / h
-        resized_img = cv2.resize(
-            img, dsize=(0, 0), fx=mult, fy=mult, 
-            interpolation=cv2.INTER_AREA if mult < 1. else cv2.INTER_CUBIC
-        )
 
-        bboxes = self.fa.face_detector.detect_from_image(resized_img)
+
+        bboxes = self.fa.face_detector.detect_from_image(img)
         
         # Filter valid faces (score > 0.95)
         valid_bboxes = [
-            (int(x1 / mult), int(y1 / mult), int(x2 / mult), int(y2 / mult), score)
+            (int(x1), int(y1), int(x2 ), int(y2 ), score)
             for (x1, y1, x2, y2, score) in bboxes if score > 0.95
         ]
 
@@ -73,11 +69,6 @@ class DataProcessor:
         # Adjust coordinates for padding
         my, mx = my + bs, mx + bs
         crop_img = img[my - bs:my + bs, mx - bs:mx + bs]
-        
-        crop_img = cv2.resize(
-            crop_img, (self.input_size, self.input_size),
-            interpolation=cv2.INTER_AREA if mult < 1. else cv2.INTER_CUBIC
-        )
         return Image.fromarray(crop_img)
 
     def load_image(self, path):
