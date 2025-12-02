@@ -2,7 +2,7 @@
 <p align="center">
   <h1>IMTalker: Efficient Audio-driven Talking Face Generation with Implicit Motion Transfer</h1>
 
-  [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/000000)
+  [![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2511.22167)
   [![Hugging Face Model](https://img.shields.io/badge/Model-HuggingFace-yellow?logo=huggingface)](https://huggingface.co/cbsjtu01/IMTalker)
   [![Hugging Face Space](https://img.shields.io/badge/Space-HuggingFace-blueviolet?logo=huggingface)](https://huggingface.co/spaces/chenxie95/IMTalker)
   [![demo](https://img.shields.io/badge/GitHub-Demo-orange.svg)](https://cbsjtu01.github.io/IMTalker/)
