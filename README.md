@@ -81,7 +81,7 @@ python generator/generate.py \
     --res_dir "./results/" \
     --generator_path "./checkpoints/generator.ckpt" \
     --renderer_path "./checkpoints/renderer.ckpt" \
-    --a_cfg_scale 3 \
+    --a_cfg_scale 2 \
     --crop
 ```
 ### 2. Video-driven Inference
