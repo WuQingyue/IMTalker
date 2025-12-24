@@ -1,3 +1,7 @@
+import sys  
+import os  
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
+
 import os
 import datetime
 import random
@@ -45,18 +49,16 @@ class DataProcessor:
         ])
 
     @torch.no_grad()
-    def process_img(self, img: Image.Image) -> Image.Image:
+    def _detect_face_bbox(self, img: Image.Image):
         img_arr = np.array(img)
         h, w = img_arr.shape[:2]
 
-        mult = 360.0 / h
-
         bboxes = self.fa.face_detector.detect_from_image(img_arr)
         valid_bboxes = [
-            (int(x1 ), int(y1), int(x2), int(y2), score)
+            (int(x1), int(y1), int(x2), int(y2), score)
             for (x1, y1, x2, y2, score) in bboxes if score > 0.95
         ]
-        
+
         if not valid_bboxes:
             raise ValueError("No face detected in the reference image.")
 
@@ -77,6 +79,11 @@ class DataProcessor:
         x2_new = x1_new + side
         y2_new = y1_new + side
 
+        return img_arr, int(x1_new), int(y1_new), int(x2_new), int(y2_new)
+
+    @torch.no_grad()
+    def process_img(self, img: Image.Image) -> Image.Image:
+        img_arr, x1_new, y1_new, x2_new, y2_new = self._detect_face_bbox(img)
         crop_img = img_arr[y1_new:y2_new, x1_new:x2_new]
         return Image.fromarray(crop_img)
 
@@ -95,8 +102,8 @@ class DataProcessor:
 
     def preprocess(self, ref_path: str, audio_path: str, crop: bool) -> dict:
         s = self.default_img_loader(ref_path)
-        if crop:
-            s = self.process_img(s)
+        # Always process and crop the reference image regardless of the crop flag
+        s = self.process_img(s)
         
         s_tensor = self.transform(s).unsqueeze(0)
         a_tensor = self.default_aud_loader(audio_path).unsqueeze(0)
@@ -161,8 +168,9 @@ class InferenceAgent:
 
     @torch.no_grad()
     def run_inference(self, res_path, ref_path, aud_path, pose_path=None, gaze_path=None, **kwargs):
+        # Always crop the reference image inside preprocess; crop flag is ignored there
         data = self.data_processor.preprocess(ref_path, aud_path, crop=kwargs.get('crop', False))
-        
+
         if pose_path and os.path.exists(pose_path):
             data["pose"], data["cam"] = load_smirk_params(torch.load(pose_path))
         else:
@@ -172,14 +180,64 @@ class InferenceAgent:
             data["gaze"] = torch.tensor(np.load(gaze_path), dtype=torch.float32).cuda()
         else:
             data["gaze"] = None
-        
+
         f_r, t_r, g_r = self.encode_image(data['s'].to(self.opt.rank))
         data["ref_x"] = t_r
 
         sample = self.fm.sample(data, a_cfg_scale=kwargs.get('a_cfg_scale', 1.0), nfe=kwargs.get('nfe', 10), seed=kwargs.get('seed', 25))
         data_out = self.decode_image(f_r, t_r, sample, g_r)
-        
-        return self.save_video(data_out["d_hat"], res_path, aud_path)
+
+        # Composite generated frames back onto the original static reference image
+        d_hat = data_out["d_hat"]  # [T, C, H, W]
+        ref_img = self.data_processor.default_img_loader(ref_path)  # PIL RGB
+        ref_arr, x1, y1, x2, y2 = self.data_processor._detect_face_bbox(ref_img)
+
+        h_bg, w_bg = ref_arr.shape[:2]
+        x1_clamped = max(0, min(w_bg, x1))
+        x2_clamped = max(0, min(w_bg, x2))
+        y1_clamped = max(0, min(h_bg, y1))
+        y2_clamped = max(0, min(h_bg, y2))
+
+        # If bbox is degenerate, fall back to full-frame video
+        if x2_clamped <= x1_clamped or y2_clamped <= y1_clamped:
+            return self.save_video(d_hat, res_path, aud_path)
+
+        box_w = x2_clamped - x1_clamped
+        box_h = y2_clamped - y1_clamped
+
+        yy, xx = np.mgrid[0:box_h, 0:box_w]
+        nx = (xx + 0.5) / box_w
+        ny = (yy + 0.5) / box_h
+        dist = np.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2)
+        r1, r2 = 0.3, 0.5
+        alpha = np.clip((r2 - dist) / max(r2 - r1, 1e-6), 0.0, 1.0).astype(np.float32)
+
+        frames = []
+        T = d_hat.shape[0]
+        for i in range(T):
+            frame = d_hat[i]  # [C, H, W]
+            frame_np = frame.permute(1, 2, 0).detach().cpu().numpy()
+            # Match app.py: only remap from [-1, 1] to [0, 1] when necessary
+            if frame_np.min() < 0:
+                frame_np = (frame_np + 1.0) / 2.0
+            frame_np = np.clip(frame_np, 0.0, 1.0)
+            frame_np = (frame_np * 255.0).astype(np.uint8)
+
+            face_resized = cv2.resize(frame_np, (box_w, box_h))
+
+            bg_frame = ref_arr.copy()
+            bg_patch = bg_frame[y1_clamped:y2_clamped, x1_clamped:x2_clamped].astype(np.float32)
+            alpha_3c = alpha[..., None]
+            blended = alpha_3c * face_resized.astype(np.float32) + (1.0 - alpha_3c) * bg_patch
+            blended = np.clip(blended, 0.0, 255.0).astype(np.uint8)
+
+            bg_frame[y1_clamped:y2_clamped, x1_clamped:x2_clamped] = blended
+            frames.append(bg_frame)
+
+        frames_np = np.stack(frames, axis=0).astype(np.float32) / 255.0
+        frames_tensor = torch.from_numpy(frames_np).permute(0, 3, 1, 2)
+
+        return self.save_video(frames_tensor, res_path, aud_path)
 
     @torch.no_grad()
     def encode_image(self, x):

@@ -138,7 +138,7 @@ class DataProcessor:
             self.wav2vec_preprocessor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/wav2vec2-base-960h")
         self.transform = transforms.Compose([transforms.Resize((512, 512)), transforms.ToTensor()])
 
-    def process_img(self, img: Image.Image) -> Image.Image:
+    def _detect_face_bbox(self, img: Image.Image):
         img_arr = np.array(img)
         if img_arr.ndim == 2:
             img_arr = cv2.cvtColor(img_arr, cv2.COLOR_GRAY2RGB)
@@ -148,7 +148,7 @@ class DataProcessor:
         try:
             bboxes = self.fa.face_detector.detect_from_image(img_arr)
             if bboxes is None or len(bboxes) == 0:
-                 bboxes = self.fa.face_detector.detect_from_image(img_arr)
+                bboxes = self.fa.face_detector.detect_from_image(img_arr)
         except Exception as e:
             print(f"Face detection failed: {e}")
             bboxes = None
@@ -172,15 +172,32 @@ class DataProcessor:
             y1_new = cy - half_side
             x2_new = cx + half_side
             y2_new = cy + half_side
-            if x1_new < 0: x2_new += (0 - x1_new); x1_new = 0
-            if y1_new < 0: y2_new += (0 - y1_new); y1_new = 0
-            if x2_new > w: x1_new -= (x2_new - w); x2_new = w
-            if y2_new > h: y1_new -= (y2_new - h); y2_new = h
-            x1_new = max(0, x1_new); y1_new = max(0, y1_new); x2_new = min(w, x2_new); y2_new = min(h, y2_new)
-            curr_w = x2_new - x1_new; curr_h = y2_new - y1_new
+            if x1_new < 0:
+                x2_new += (0 - x1_new)
+                x1_new = 0
+            if y1_new < 0:
+                y2_new += (0 - y1_new)
+                y1_new = 0
+            if x2_new > w:
+                x1_new -= (x2_new - w)
+                x2_new = w
+            if y2_new > h:
+                y1_new -= (y2_new - h)
+                y2_new = h
+            x1_new = max(0, x1_new)
+            y1_new = max(0, y1_new)
+            x2_new = min(w, x2_new)
+            y2_new = min(h, y2_new)
+            curr_w = x2_new - x1_new
+            curr_h = y2_new - y1_new
             min_side = min(curr_w, curr_h)
-            x2_new = x1_new + min_side; y2_new = y1_new + min_side
-        crop_img = img_arr[int(y1_new):int(y2_new), int(x1_new):int(x2_new)]
+            x2_new = x1_new + min_side
+            y2_new = y1_new + min_side
+        return img_arr, int(x1_new), int(y1_new), int(x2_new), int(y2_new)
+
+    def process_img(self, img: Image.Image) -> Image.Image:
+        img_arr, x1_new, y1_new, x2_new, y2_new = self._detect_face_bbox(img)
+        crop_img = img_arr[y1_new:y2_new, x1_new:x2_new]
         crop_pil = Image.fromarray(crop_img)
         return crop_pil.resize((self.opt.input_size, self.opt.input_size))
 
@@ -313,13 +330,17 @@ class InferenceAgent:
 
     @torch.no_grad()
     def run_audio_inference(self, img_pil, aud_path, crop, seed, nfe, cfg_scale):
-        s_pil = self.data_processor.process_img(img_pil) if crop else img_pil.resize((self.opt.input_size, self.opt.input_size))
-        s_tensor = self.data_processor.transform(s_pil).unsqueeze(0).to(self.device)
+        img_rgb = img_pil.convert('RGB')
+        img_arr, x1, y1, x2, y2 = self.data_processor._detect_face_bbox(img_rgb)
+        face_crop = img_arr[y1:y2, x1:x2]
+        face_pil = Image.fromarray(face_crop).resize((self.opt.input_size, self.opt.input_size))
+        s_tensor = self.data_processor.transform(face_pil).unsqueeze(0).to(self.device)
         a_tensor = self.data_processor.process_audio(aud_path).unsqueeze(0).to(self.device)
         data = {'s': s_tensor, 'a': a_tensor, 'pose': None, 'cam': None, 'gaze': None, 'ref_x': None}
         f_r, g_r = self.renderer.dense_feature_encoder(s_tensor)
         t_lat = self.renderer.latent_token_encoder(s_tensor)
-        if isinstance(t_lat, tuple): t_lat = t_lat[0]
+        if isinstance(t_lat, tuple):
+            t_lat = t_lat[0]
         data['ref_x'] = t_lat
         torch.manual_seed(seed)
         sample = self.generator.sample(data, a_cfg_scale=cfg_scale, nfe=nfe, seed=seed)
@@ -333,11 +354,36 @@ class InferenceAgent:
             out_frame = self.renderer.decode(m_c, m_r, f_r)
             d_hat.append(out_frame)
         vid_tensor = torch.stack(d_hat, dim=1).squeeze(0)
-        return self.save_video(vid_tensor, self.opt.fps, aud_path)
+
+        bg = img_rgb
+        bg_arr = np.array(bg)
+        h_bg, w_bg = bg_arr.shape[:2]
+        x1_clamped = max(0, min(w_bg, x1))
+        x2_clamped = max(0, min(w_bg, x2))
+        y1_clamped = max(0, min(h_bg, y1))
+        y2_clamped = max(0, min(h_bg, y2))
+        if x2_clamped <= x1_clamped or y2_clamped <= y1_clamped:
+            return self.save_video(vid_tensor, self.opt.fps, aud_path)
+        frames = []
+        num_frames = vid_tensor.shape[0]
+        for i in range(num_frames):
+            frame = vid_tensor[i]
+            frame_np = frame.permute(1, 2, 0).detach().cpu().numpy()
+            if frame_np.min() < 0:
+                frame_np = (frame_np + 1.0) / 2.0
+            frame_np = np.clip(frame_np, 0.0, 1.0)
+            frame_np = (frame_np * 255.0).astype(np.uint8)
+            face_resized = cv2.resize(frame_np, (x2_clamped - x1_clamped, y2_clamped - y1_clamped))
+            bg_frame = bg_arr.copy()
+            bg_frame[y1_clamped:y2_clamped, x1_clamped:x2_clamped] = face_resized
+            frames.append(bg_frame)
+        frames_np = np.stack(frames, axis=0).astype(np.float32) / 255.0
+        frames_tensor = torch.from_numpy(frames_np).permute(0, 3, 1, 2)
+        return self.save_video(frames_tensor, self.opt.fps, aud_path)
 
     @torch.no_grad()
     def run_video_inference(self, source_img_pil, driving_video_path, crop):
-        s_pil = self.data_processor.process_img(source_img_pil) if crop else source_img_pil.resize((self.opt.input_size, self.opt.input_size))
+        s_pil = self.data_processor.process_img(source_img_pil)
         s_tensor = self.data_processor.transform(s_pil).unsqueeze(0).to(self.device)
         f_r, i_r = self.renderer.app_encode(s_tensor)
         t_r = self.renderer.mot_encode(s_tensor)

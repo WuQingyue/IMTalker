@@ -115,8 +115,8 @@ class Demo(nn.Module):
         
         # 1. Process Source Image
         source_img = self.processor.load_image(source_path)
-        if self.args.crop:
-            source_img = self.processor.process_img(source_img)
+        # Always process and crop the source image regardless of the crop flag
+        source_img = self.processor.process_img(source_img)
         
         source_tensor = self.processor.transform(source_img).unsqueeze(0).to(self.device)
         # 2. Encode Source Appearance & Motion
