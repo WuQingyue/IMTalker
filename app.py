@@ -167,7 +167,7 @@ class DataProcessor:
             cy = (y1 + y2) // 2
             w_face = x2 - x1
             h_face = y2 - y1
-            half_side = int(max(w_face, h_face) * 0.8)
+            half_side = int(max(w_face, h_face) * 0.9)
             x1_new = cx - half_side
             y1_new = cy - half_side
             x2_new = cx + half_side

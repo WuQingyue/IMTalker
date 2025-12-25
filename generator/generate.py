@@ -66,8 +66,8 @@ class DataProcessor:
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
 
-        half_w = int((x2 - x1) * 0.8)
-        half_h = int((y2 - y1) * 0.8)
+        half_w = int((x2 - x1) * 0.9)
+        half_h = int((y2 - y1) * 0.9)
         half = max(half_w, half_h)
 
         x1_new = max(cx - half, 0)
@@ -206,11 +206,18 @@ class InferenceAgent:
         box_h = y2_clamped - y1_clamped
 
         yy, xx = np.mgrid[0:box_h, 0:box_w]
-        nx = (xx + 0.5) / box_w
-        ny = (yy + 0.5) / box_h
+        nx = (xx + 0.5) / max(box_w, 1)
+        ny = (yy + 0.5) / max(box_h, 1)
         dist = np.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2)
-        r1, r2 = 0.3, 0.5
+
+        # Even narrower transition band: larger inner radius, smaller outer radius
+        r1, r2 = 0.45, 0.52
         alpha = np.clip((r2 - dist) / max(r2 - r1, 1e-6), 0.0, 1.0).astype(np.float32)
+        if box_w > 4 and box_h > 4:
+            sigma_x = max(box_w / 50.0, 1.0)
+            sigma_y = max(box_h / 50.0, 1.0)
+            alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=sigma_x, sigmaY=sigma_y)
+            alpha = np.clip(alpha, 0.0, 1.0).astype(np.float32)
 
         frames = []
         T = d_hat.shape[0]
